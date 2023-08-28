@@ -1,0 +1,1 @@
+直接运行prompt.py测试bert score，并会保存
