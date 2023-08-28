@@ -5,8 +5,8 @@ from rouge_score.scoring import AggregateScore, Score
 import bert_score
 from tqdm import tqdm
 
-ej_api_key = "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"
-my_api_key = "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"
+ej_api_key = ""
+my_api_key = ""
 
 
 class Summarize:
