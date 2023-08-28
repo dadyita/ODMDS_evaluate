@@ -11,7 +11,7 @@ my_api_key = ""
 
 class Summarize:
     @staticmethod
-    def gpt_run(user_list):
+    def gpt_run(user_list, requests_per_minute):
         system = [
             '''Imagine you are a human annotator. You will receive a query and a article.Read the article and answer the question in about 200-400 words.The question may be a specific question or a general question which ask you to summarize the storyline. Both kinds are all answerable. Please read the article carefully.''',
             '''You are a helpful assistant that gives long answer to question based on a long story.''',
@@ -27,7 +27,7 @@ class Summarize:
                                         max_tokens=600,
                                         top_p=0.9,
                                         api_key=ej_api_key,
-                                        requests_per_minute=40)
+                                        requests_per_minute=requests_per_minute)
         return response_list
 
     @staticmethod
@@ -64,13 +64,18 @@ class Summarize:
                 # If it is origin file
                 if file_name not in wait_process_files:
                     continue
+
+                # Set requests_per_minute
+                requests_per_minute = 20
+                if root.endswith('min'):
+                    requests_per_minute = 40
                 # Load data
                 with open(os.path.join(root, file_name), 'r') as f:
                     data = json.load(f)
                 # Get input
                 input_user_list = Summarize.get_input(data)
                 # Get response
-                new_summary = Summarize.gpt_run(input_user_list)
+                new_summary = Summarize.gpt_run(input_user_list, requests_per_minute)
                 # Write response
                 with open(root + '/summary/newSummary_' + file_name, 'w') as f:
                     temp = json.dumps(new_summary, indent=4)
@@ -172,19 +177,10 @@ class Evaluate:
         # Evaluate.another_rouge(path, predictions, references)
 
     @staticmethod
-    def traverse_path():
-        paths = [
-            'SQuALITY/sparse/max/',
-            'SQuALITY/sparse/min/',
-            'SQuALITY/sparse/mean/',
-            'SQuALITY/LLM-embedding/min',
-            # 'SQuALITY/LLM-embedding/max',
-            'SQuALITY/LLM-embedding/mean']
-
+    def traverse_path(root):
+        paths = [os.path.join(root, item) for item in os.listdir(root)]
         for path in paths:
             Evaluate.evaluate(path)
-
-        # Load data
 
     @staticmethod
     def print_score(path):
@@ -200,6 +196,6 @@ class Evaluate:
                         print(f"rougeL:{obj_rouge['rougeL'].mid.fmeasure * 100:.2f}")
 
 
-# Summarize.traverse_summary('SQuALITY/LLM-embedding/min')
-Evaluate.traverse_path()
+# Summarize.traverse_summary('SQuALITY/dense')
+Evaluate.traverse_path('SQuALITY/sparse')
 # Evaluate.print_score('SQuALITY')
