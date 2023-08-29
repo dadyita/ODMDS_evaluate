@@ -5,7 +5,7 @@ from rouge_score.scoring import AggregateScore, Score
 import bert_score
 from tqdm import tqdm
 
-ej_api_key = ""
+ej_api_key = "sk-"
 my_api_key = ""
 
 
@@ -36,10 +36,7 @@ class Summarize:
         for item in data:
             query = item['Query']
             article = item['Article']
-            # input_string = "Query:" + query + "\n\nArticle:" + article
             input_string = f"Write an answer based on the following question and the story.\n QUESTION:{query}\n STORY:{article}\n SUMMARY: \n"
-            # input_string = f"Write an answer based on the following question and the meeting.\n QUESTION:{query}\n MEETING:{article}\n SUMMARY: \n"
-
             input_user_list.append(input_string)
         return input_user_list
 
@@ -118,7 +115,7 @@ class Evaluate:
     def squality_rouge(path, predictions, references):
         print('Evaluate rouge score (use squality)')
         rouge_object = multi_rouge.Rouge()
-        squality_rouge_score = rouge_object._compute(predictions=predictions, references=references)
+        squality_rouge_score = rouge_object._compute(predictions=predictions, references=references, use_stemmer=True)
         file_path = os.path.join(path, 'evaluation/evaluate_squality_rouge.json')
         with open(file_path, 'w') as f:
             f.write(str(squality_rouge_score))
@@ -130,7 +127,7 @@ class Evaluate:
         # 批次大小
         batch_size = 16
 
-        scores = {'p': [], 'r': [], 'f1': []}
+        bert_scores = {'p': [], 'r': [], 'f1': [], 'average_p': 0, 'average_r': 0, 'average_f1': 0}
         num_batches = (len(predictions) + batch_size - 1) // batch_size  # 计算需要的批次数量
 
         for i in tqdm(range(num_batches)):
@@ -141,15 +138,23 @@ class Evaluate:
             ref_batch = references[start:end]
 
             p, r, f1 = bert_score.score(pred_batch, ref_batch, lang='en')
-            # Add in scores
+            # Add in bert_scores
             for index in range(len(p)):
-                scores['r'].append(float(p[index]))
-                scores['p'].append(float(r[index]))
-                scores['f1'].append(float(f1[index]))
+                bert_scores['r'].append(float(p[index]))
+                bert_scores['p'].append(float(r[index]))
+                bert_scores['f1'].append(float(f1[index]))
+
+        # Calculate average bert
+        average_p = sum(bert_scores['p']) / len(bert_scores['p'])
+        average_r = sum(bert_scores['r']) / len(bert_scores['r'])
+        average_f1 = sum(bert_scores['f1']) / len(bert_scores['f1'])
+        bert_scores['average_p'] = average_p
+        bert_scores['average_r'] = average_r
+        bert_scores['average_f1'] = average_f1
 
         file_path = os.path.join(path, 'evaluation/evaluate_bert_score.json')
         with open(file_path, 'w') as f:
-            temp = json.dumps(scores)
+            temp = json.dumps(bert_scores)
             f.write(temp)
 
     @staticmethod
@@ -161,7 +166,7 @@ class Evaluate:
             f.write(temp)
 
     @staticmethod
-    def evaluate(path):
+    def evaluate(path, test_bert, test_rouge, test_another_rouge=False):
         # Load predictions
         predictions = Evaluate.load_pred(path)
 
@@ -172,15 +177,18 @@ class Evaluate:
         references = [references[index] for index, item in enumerate(predictions) if item != '']
         predictions = [predictions[index] for index, item in enumerate(predictions) if item != '']
 
-        # Evaluate.squality_rouge(path, predictions, references)
-        Evaluate.bert(path, predictions, references)
-        # Evaluate.another_rouge(path, predictions, references)
+        if test_rouge:
+            Evaluate.squality_rouge(path, predictions, references)
+        if test_bert:
+            Evaluate.bert(path, predictions, references)
+        if test_another_rouge:
+            Evaluate.another_rouge(path, predictions, references)
 
     @staticmethod
-    def traverse_path(root):
+    def traverse_path(root, test_bert, test_rouge, test_another_rouge=False):
         paths = [os.path.join(root, item) for item in os.listdir(root)]
         for path in paths:
-            Evaluate.evaluate(path)
+            Evaluate.evaluate(path, test_bert, test_rouge, test_another_rouge=test_another_rouge)
 
     @staticmethod
     def print_score(path):
@@ -191,11 +199,9 @@ class Evaluate:
                         rouge = f.read()
                         obj_rouge = eval(rouge)
                         print(root)
-                        print(f"rouge1:{obj_rouge['rouge1'].mid.fmeasure * 100:.2f}")
-                        print(f"rouge2:{obj_rouge['rouge2'].mid.fmeasure * 100:.2f}")
-                        print(f"rougeL:{obj_rouge['rougeL'].mid.fmeasure * 100:.2f}")
+                        print(f"rouge1:\n{obj_rouge['rouge1'].mid.fmeasure * 100:.2f}")
+                        print(f"rouge2:\n{obj_rouge['rouge2'].mid.fmeasure * 100:.2f}")
+                        print(f"rougeL:\n{obj_rouge['rougeL'].mid.fmeasure * 100:.2f}")
 
 
-# Summarize.traverse_summary('SQuALITY/dense')
-Evaluate.traverse_path('SQuALITY/sparse')
-# Evaluate.print_score('SQuALITY')
+Evaluate.evaluate('SQuALITY/oracle', test_bert=True, test_rouge=False)
