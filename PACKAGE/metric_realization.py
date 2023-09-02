@@ -39,7 +39,7 @@ def calculate_bert_score(ref, pred):
 
 def calculate_bleurt(ref, pred):
     bleurt = evaluate.load('bleurt')
-    results = bleurt.compute(predictions=[pred], references=[ref])
+    results = bleurt.compute(predictions=pred, references=ref)
     new_result = {'bleurt': results['scores'][0]}
     return new_result
 
@@ -52,5 +52,5 @@ def calculate_bleurt(ref, pred):
 #     return {"moverscore":results[0]}
 
 
-# def calculate_parent(ref, pred, table):
-#     return {}
+def calculate_parent(ref, pred, table):
+    return {}

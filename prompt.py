@@ -1,10 +1,12 @@
 import json
+import time
+import pygame
 from PACKAGE import asyncThread, metric_realization, multi_rouge
 import os
 import bert_score
 from tqdm import tqdm
 
-api_key = "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"
+api_key = "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"
 
 
 class Summarize:
@@ -106,7 +108,7 @@ class Evaluate:
         print('Evaluate rouge score (use squality)')
         rouge_object = multi_rouge.Rouge()
         squality_rouge_score = rouge_object._compute(predictions=predictions, references=references, use_stemmer=True)
-        file_path = os.path.join(path, 'evaluate_squality_rouge.json')
+        file_path = os.path.join(path, 'squality_rouge.json')
         with open(file_path, 'w') as f:
             f.write(str(squality_rouge_score))
 
@@ -142,7 +144,7 @@ class Evaluate:
         bert_scores['average_r'] = average_r
         bert_scores['average_f1'] = average_f1
 
-        file_path = os.path.join(path, 'evaluation/evaluate_bert_score.json')
+        file_path = os.path.join(path, 'evaluation/bart_bert_score.json')
         with open(file_path, 'w') as f:
             temp = json.dumps(bert_scores)
             f.write(temp)
@@ -151,7 +153,7 @@ class Evaluate:
     def another_rouge(path, predictions, references):
         print('Evaluate rouge score (use another way)')
         rouge_score = metric_realization.calculate_rouge(ref=references, pred=predictions)
-        with open(os.path.join(path, 'evaluation/evaluate_rouge.json'), 'w') as f:
+        with open(os.path.join(path, 'evaluation/rouge.json'), 'w') as f:
             temp = json.dumps(rouge_score)
             f.write(temp)
 
@@ -159,7 +161,7 @@ class Evaluate:
     def bleurt(path, predictions, references):
         print('Evaluate bleurt score')
         rouge_score = metric_realization.calculate_bert_score(ref=references, pred=predictions)
-        with open(os.path.join(path, 'evaluation/evaluate_bleurt.json'), 'w') as f:
+        with open(os.path.join(path, 'evaluation/bleurt.json'), 'w') as f:
             temp = json.dumps(rouge_score)
             f.write(temp)
 
@@ -167,7 +169,7 @@ class Evaluate:
     def gpt_eval(path, predictions, references, bart=False):
         # Get prompt
         metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[3]
+        metric_type = metric_list[1]
         prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
         # Get messages
         messages = []
@@ -182,18 +184,25 @@ class Evaluate:
                                         max_tokens=5,
                                         top_p=1,
                                         api_key=api_key,
-                                        requests_per_minute=200)
+                                        requests_per_minute=180)
         # Del non-numeric
         num_list = ['1', '2', '3', '4', '5']
-        response_list = [item for item in response_list if item[0] in num_list]
+        response_list = [item for item in response_list if item and item[0] in num_list]
+        response_list = [int(item[0]) for item in response_list]
         # Calaulate Average
         # Save
         save_path = os.path.join(path, 'evaluation/gpt3_' + metric_type + '_gpteval.json')
         if bart:
             save_path = os.path.join(path, 'evaluation/bart_' + metric_type + '_gpteval.json')
+        # Load fore gpteval
+        if os.path.exists(save_path):
+            with open(save_path, "r") as f:
+                gpteval = json.load(f)
+        else:
+            gpteval = {}
+        gpteval['Summary_4'] = response_list
         with open(save_path, 'w') as f:
-            print(f'write to {path}')
-            temp = json.dumps(response_list)
+            temp = json.dumps(gpteval)
             f.write(temp)
 
     @staticmethod
@@ -202,8 +211,7 @@ class Evaluate:
         if gpteval:
             predictions, references = GPTeval.load_pred_ref(path, bart)
         elif bart:
-            predictions = BartEvaluation.load_pred(path)
-            references = BartEvaluation.load_ref(path)
+            predictions, references = BartEvaluation.load_pred_ref(path)
         else:
             predictions, references = Evaluate.load_pref_ref(path)
 
@@ -211,7 +219,10 @@ class Evaluate:
         references = [references[index] for index, item in enumerate(predictions) if item != '']
         predictions = [predictions[index] for index, item in enumerate(predictions) if item != '']
 
-        # Test
+        # Test Data
+        # references = references[0:5]
+        # predictions = predictions[0:5]
+
         if rouge:
             Evaluate.squality_rouge(path, predictions, references)
         if bert:
@@ -225,9 +236,17 @@ class Evaluate:
 
     @staticmethod
     def traverse_path(root, bert=False, rouge=False, another_rouge=False, bleurt=False, bart=False, gpteval=False):
+        start_flag = True
         for path, dirs, files in os.walk(root):
             if files and dirs:
+                if start_flag:
+                    start_flag = False
+                else:
+                    print("sleep 45 seconds")
+                    # time.sleep(45)
+                print(f'prepare {path}')
                 Evaluate.evaluate(path, bert, rouge, another_rouge, bleurt, bart, gpteval)
+                print(f'write to {path}')
             else:
                 continue
 
@@ -235,29 +254,30 @@ class Evaluate:
 class BartEvaluation:
     @staticmethod
     # Load pred
-    def load_pred(path):
-        file_path = os.path.join(path, 'generated_predictions.json')
-        with open(file_path, 'r') as f:
-            return json.load(f)
-
-    @staticmethod
-    # Load ref
-    def load_ref(path):
-        file_path = os.path.join(path, 'test.json')
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                item_ref = json.load(f)
+    def load_pred_ref(path):
+        # Load pred
+        pred_type = 'bart_summary.json'
+        pred_file_path = os.path.join(path, 'summary/' + pred_type)
+        with open(pred_file_path, 'r') as f:
+            predictions = json.load(f)
+        # Load ref
+        ref_file_path = os.path.join(path, 'test.json')
+        if os.path.exists(ref_file_path):
+            # Load reference
+            with open(ref_file_path, 'r') as f:
+                references = json.load(f)
         else:
-            for filename in os.listdir(path):
-                file_path = os.path.join(path, filename)
-                if os.path.isfile(file_path) and filename != 'generated_predictions.json':
-                    with open(file_path, 'r') as f:
-                        item_ref = json.load(f)
-                        item_ref = item_ref[250:510]
-        item_ref = [
-            [data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']]
-            for data_item in item_ref]
-        return item_ref
+            ref_files = ['max.json', 'mean.json', 'min.json']
+            ref_file_paths = [os.path.join(path, ref_file) for ref_file in ref_files]
+            for index, ref_file_path in enumerate(ref_file_paths):
+                if os.path.exists(ref_file_path):
+                    # Load reference
+                    with open(ref_file_path, 'r') as f:
+                        references = json.load(f)
+                    references = references[250:510]
+        references = [[data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']]
+                      for data_item in references]
+        return predictions, references
 
 
 class GPTeval:
@@ -271,7 +291,7 @@ class GPTeval:
             # Load reference
             with open(ref_file_path, 'r') as f:
                 references = json.load(f)
-            references = [data_item['Summary_1'] for data_item in references]
+            references = [data_item['Summary_4'] for data_item in references]
             # Load prediction
             pred_type = 'gpt3_summary_test.json'
             if bart:
@@ -287,7 +307,7 @@ class GPTeval:
                     # Load reference
                     with open(ref_file_path, 'r') as f:
                         references = json.load(f)
-                    references = [data_item['Summary_1'] for data_item in references]
+                    references = [data_item['Summary_4'] for data_item in references]
                     references = references[250:510]
                     # Load prediction
                     pred_type = 'gpt3_summary_' + ref_files[index]
@@ -300,5 +320,22 @@ class GPTeval:
                         predictions = predictions[250:510]
         return predictions, references
 
-# waiting to process: oracle LLM-embedding sparse —— bart rel
-Evaluate.traverse_path('SQuALITY/oracle', gpteval=True, bart=True)
+
+# 初始化所有 Pygame 模块
+pygame.init()
+# waiting to process: dense LLM-embedding oracle sparse —— bart rel
+'''
+dense
+LLM-embedding
+oracle
+sparse
+'''
+Evaluate.traverse_path('SQuALITY/dense/max', bert=True, bart=True)
+
+# Play sound when done
+pygame.mixer.music.load("雷达铃声.mp3")
+pygame.mixer.music.set_volume(0.5)
+for i in range(3):
+    pygame.mixer.music.play()
+    while pygame.mixer.music.get_busy():
+        continue

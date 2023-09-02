@@ -20,35 +20,41 @@ async def _throttled_openai_chat_completion_acreate(
         max_tokens: int,
         top_p: float,
         limiter: aiolimiter.AsyncLimiter,
+        timeout: int = 60
 ) -> dict[str, Any]:
     async with limiter:
         for _ in range(10):
             try:
-                return await openai.ChatCompletion.acreate(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    top_p=top_p,
+                return await asyncio.wait_for(  # 修改这里
+                    openai.ChatCompletion.acreate(
+                        model=model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        top_p=top_p,
+                    ), timeout  # 添加这里
                 )
+            except asyncio.TimeoutError:  # 修改这里，注意去掉 or openai.error.Timeout
+                logging.warning(f"OpenAI API timeout after 60 seconds. Returning default value.")
+                return {"choices": [{"message": {"content": "Timeout, returning default value"}}]}  # 返回一个默认结果
             except openai.error.RateLimitError:
                 logging.warning(
-                    f"OpenAI API rate limit exceeded. Sleeping for 60 seconds."
+                    f"OpenAI API rate limit exceeded. Sleeping for 11 seconds.Try {_ + 1}"
                 )
-                await asyncio.sleep(60)
-            except asyncio.exceptions.TimeoutError or openai.error.Timeout:
-                logging.warning(f"OpenAI API timeout. Sleeping for 60 seconds.")
-                await asyncio.sleep(60)
+                await asyncio.sleep(11)
+            except openai.error.Timeout:
+                logging.warning(f"OpenAI API timeout. Sleeping for 11 seconds.Try {_ + 1}")
+                await asyncio.sleep(11)
             except openai.error.APIError as e:
-                logging.warning(f"OpenAI API error: {e}.Sleeping for 60 seconds.")
-                await asyncio.sleep(60)
+                logging.warning(f"OpenAI API error: {e}.Sleeping for 11 seconds.Try {_ + 1}")
+                await asyncio.sleep(11)
             except openai.error.ServiceUnavailableError as e:
-                logging.warning(f"OpenAI error:{e}")
-                await asyncio.sleep(10)
+                logging.warning(f"OpenAI error:{e}Try {_ + 1}")
+                await asyncio.sleep(11)
             except Exception as e:
-                logging.warning(f"Exception OR Error:{e}")
-                return {"choices": [{"message": {"content": ""}}]}
-        return {"choices": [{"message": {"content": ""}}]}
+                logging.warning(f"Exception OR Error:{e}Try {_ + 1}")
+                return {"choices": [{"message": {"content": "0"}}]}
+        return {"choices": [{"message": {"content": "0"}}]}
 
 
 async def generate_from_openai_chat_completion(
