@@ -6,7 +6,9 @@ import os
 import bert_score
 from tqdm import tqdm
 
-api_key = "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"
+with open('../../keys.json', 'r') as f:
+    api_keys = json.load(f)
+api_key = api_keys[0]
 
 
 class Summarize:
@@ -74,34 +76,6 @@ class Summarize:
 
 
 class Evaluate:
-    @staticmethod
-    def load_pref_ref(path):
-        predictions = []
-        references = []
-
-        ref_files = [
-            'max.json', 'mean.json', 'min.json', 'Academic.json', 'Committee.json', 'Product.json', 'dev.json',
-            'test.json',
-            'train.json']
-
-        for ref_file in ref_files:
-            ref_file_path = os.path.join(path, ref_file)
-            pred_file_path = os.path.join(path, 'gpt3_summary_' + ref_file)
-
-            if os.path.exists(ref_file_path):
-                with open(ref_file_path, 'r') as f:
-                    item_ref = json.load(f)
-                item_ref = [
-                    [data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']]
-                    for data_item in item_ref]
-                references.extend(item_ref)
-
-            if os.path.exists(pred_file_path):
-                with open(pred_file_path, 'r') as f:
-                    item_pred = json.load(f)
-                predictions.extend(item_pred)
-
-        return predictions, references
 
     @staticmethod
     def squality_rouge(path, predictions, references):
@@ -169,7 +143,7 @@ class Evaluate:
     def gpt_eval(path, predictions, references, bart=False):
         # Get prompt
         metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[1]
+        metric_type = metric_list[3]
         prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
         # Get messages
         messages = []
@@ -200,7 +174,7 @@ class Evaluate:
                 gpteval = json.load(f)
         else:
             gpteval = {}
-        gpteval['Summary_4'] = response_list
+        gpteval['Summary_1'] = response_list
         with open(save_path, 'w') as f:
             temp = json.dumps(gpteval)
             f.write(temp)
@@ -209,11 +183,11 @@ class Evaluate:
     def evaluate(path, bert=False, rouge=False, another_rouge=False, bleurt=False, bart=False, gpteval=False):
         # Load predictions, references
         if gpteval:
-            predictions, references = GPTeval.load_pred_ref(path, bart)
+            predictions, references = LoadPredRef.gpteval(path, bart)
         elif bart:
-            predictions, references = BartEvaluation.load_pred_ref(path)
+            predictions, references = LoadPredRef.bart(path)
         else:
-            predictions, references = Evaluate.load_pref_ref(path)
+            predictions, references = LoadPredRef.init(path)
 
         # Delete empty
         references = [references[index] for index, item in enumerate(predictions) if item != '']
@@ -243,7 +217,7 @@ class Evaluate:
                     start_flag = False
                 else:
                     print("sleep 45 seconds")
-                    # time.sleep(45)
+                    time.sleep(45)
                 print(f'prepare {path}')
                 Evaluate.evaluate(path, bert, rouge, another_rouge, bleurt, bart, gpteval)
                 print(f'write to {path}')
@@ -251,10 +225,48 @@ class Evaluate:
                 continue
 
 
-class BartEvaluation:
+class LoadPredRef:
     @staticmethod
-    # Load pred
-    def load_pred_ref(path):
+    # Load ref,pred
+    def gpteval(path, bart=False):
+        predictions, references = [], []
+        # Load train data (same with bart)
+        ref_file_path = os.path.join(path, 'test.json')
+        if os.path.exists(ref_file_path):
+            # Load reference
+            with open(ref_file_path, 'r') as f:
+                references = json.load(f)
+            references = [data_item['Summary_1'] for data_item in references]
+            # Load prediction
+            pred_type = 'gpt3_summary_test.json'
+            if bart:
+                pred_type = 'bart_summary.json'
+            pred_file_path = os.path.join(path, 'summary/' + pred_type)
+            with open(pred_file_path, 'r') as f:
+                predictions = json.load(f)
+        else:
+            ref_files = ['max.json', 'mean.json', 'min.json']
+            ref_file_paths = [os.path.join(path, ref_file) for ref_file in ref_files]
+            for index, ref_file_path in enumerate(ref_file_paths):
+                if os.path.exists(ref_file_path):
+                    # Load reference
+                    with open(ref_file_path, 'r') as f:
+                        references = json.load(f)
+                    references = [data_item['Summary_1'] for data_item in references]
+                    references = references[250:510]
+                    # Load prediction
+                    pred_type = 'gpt3_summary_' + ref_files[index]
+                    if bart:
+                        pred_type = 'bart_summary.json'
+                    pred_file_path = os.path.join(path, 'summary/' + pred_type)
+                    with open(pred_file_path, 'r') as f:
+                        predictions = json.load(f)
+                    if not bart:
+                        predictions = predictions[250:510]
+        return predictions, references
+
+    @staticmethod
+    def bart(path):
         # Load pred
         pred_type = 'bart_summary.json'
         pred_file_path = os.path.join(path, 'summary/' + pred_type)
@@ -279,45 +291,33 @@ class BartEvaluation:
                       for data_item in references]
         return predictions, references
 
-
-class GPTeval:
     @staticmethod
-    # Load ref,pred
-    def load_pred_ref(path, bart=False):
-        predictions, references = [], []
-        # Load train data (same with bart)
-        ref_file_path = os.path.join(path, 'test.json')
-        if os.path.exists(ref_file_path):
-            # Load reference
-            with open(ref_file_path, 'r') as f:
-                references = json.load(f)
-            references = [data_item['Summary_4'] for data_item in references]
-            # Load prediction
-            pred_type = 'gpt3_summary_test.json'
-            if bart:
-                pred_type = 'bart_summary.json'
-            pred_file_path = os.path.join(path, 'summary/' + pred_type)
-            with open(pred_file_path, 'r') as f:
-                predictions = json.load(f)
-        else:
-            ref_files = ['max.json', 'mean.json', 'min.json']
-            ref_file_paths = [os.path.join(path, ref_file) for ref_file in ref_files]
-            for index, ref_file_path in enumerate(ref_file_paths):
-                if os.path.exists(ref_file_path):
-                    # Load reference
-                    with open(ref_file_path, 'r') as f:
-                        references = json.load(f)
-                    references = [data_item['Summary_4'] for data_item in references]
-                    references = references[250:510]
-                    # Load prediction
-                    pred_type = 'gpt3_summary_' + ref_files[index]
-                    if bart:
-                        pred_type = 'bart_summary.json'
-                    pred_file_path = os.path.join(path, 'summary/' + pred_type)
-                    with open(pred_file_path, 'r') as f:
-                        predictions = json.load(f)
-                    if not bart:
-                        predictions = predictions[250:510]
+    def init(path):
+        predictions = []
+        references = []
+
+        ref_files = [
+            'max.json', 'mean.json', 'min.json', 'Academic.json', 'Committee.json', 'Product.json', 'dev.json',
+            'test.json',
+            'train.json']
+
+        for ref_file in ref_files:
+            ref_file_path = os.path.join(path, ref_file)
+            pred_file_path = os.path.join(path, 'gpt3_summary_' + ref_file)
+
+            if os.path.exists(ref_file_path):
+                with open(ref_file_path, 'r') as f:
+                    item_ref = json.load(f)
+                item_ref = [
+                    [data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']]
+                    for data_item in item_ref]
+                references.extend(item_ref)
+
+            if os.path.exists(pred_file_path):
+                with open(pred_file_path, 'r') as f:
+                    item_pred = json.load(f)
+                predictions.extend(item_pred)
+
         return predictions, references
 
 
@@ -330,11 +330,11 @@ LLM-embedding
 oracle
 sparse
 '''
-Evaluate.traverse_path('SQuALITY/dense/max', bert=True, bart=True)
+Evaluate.traverse_path('SQuALITY/oracle', gpteval=True, bart=True)
 
 # Play sound when done
 pygame.mixer.music.load("雷达铃声.mp3")
-pygame.mixer.music.set_volume(0.5)
+pygame.mixer.music.set_volume(0.1)
 for i in range(3):
     pygame.mixer.music.play()
     while pygame.mixer.music.get_busy():

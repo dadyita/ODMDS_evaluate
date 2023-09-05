@@ -35,26 +35,30 @@ async def _throttled_openai_chat_completion_acreate(
                     ), timeout  # 添加这里
                 )
             except asyncio.TimeoutError:  # 修改这里，注意去掉 or openai.error.Timeout
-                logging.warning(f"OpenAI API timeout after 60 seconds. Returning default value.")
+                logging.warning(f"TimeoutError after 60 seconds. Returning default value.")
                 return {"choices": [{"message": {"content": "Timeout, returning default value"}}]}  # 返回一个默认结果
-            except openai.error.RateLimitError:
+            except openai.error.RateLimitError as e:
+                error_message = str(e)
+                if 'You exceeded your current quota' in error_message:
+                    print(error_message)
+                    return {"choices": [{"message": {"content": ""}}]}
                 logging.warning(
-                    f"OpenAI API rate limit exceeded. Sleeping for 11 seconds.Try {_ + 1}"
+                    f"OpenAI RateLimitError: {e}. Sleeping for 11 seconds.Try {_ + 1}"
                 )
                 await asyncio.sleep(11)
-            except openai.error.Timeout:
-                logging.warning(f"OpenAI API timeout. Sleeping for 11 seconds.Try {_ + 1}")
+            except openai.error.Timeout as e:
+                logging.warning(f"OpenAI Timeout: {e}. Sleeping for 11 seconds.Try {_ + 1}")
                 await asyncio.sleep(11)
             except openai.error.APIError as e:
                 logging.warning(f"OpenAI API error: {e}.Sleeping for 11 seconds.Try {_ + 1}")
                 await asyncio.sleep(11)
             except openai.error.ServiceUnavailableError as e:
-                logging.warning(f"OpenAI error:{e}Try {_ + 1}")
+                logging.warning(f"OpenAI ServiceUnavailableError:{e}Try {_ + 1}")
                 await asyncio.sleep(11)
             except Exception as e:
                 logging.warning(f"Exception OR Error:{e}Try {_ + 1}")
-                return {"choices": [{"message": {"content": "0"}}]}
-        return {"choices": [{"message": {"content": "0"}}]}
+                return {"choices": [{"message": {"content": ""}}]}
+        return {"choices": [{"message": {"content": ""}}]}
 
 
 async def generate_from_openai_chat_completion(
