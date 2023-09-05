@@ -15,7 +15,9 @@ def load_api_key(index):
     return api_keys[index]
 
 
-api_key = load_api_key(1)
+# 1-4.08
+# 2-3.56
+api_key = load_api_key(2)
 llm = ChatOpenAI(model_name="gpt-3.5-turbo-16k-0613", openai_api_key=api_key, temperature=0.7, max_tokens=600)
 
 
@@ -25,7 +27,8 @@ class Evaluate:
         # Calculate
         print('Evaluate rouge score (use squality)')
         rouge_object = multi_rouge.Rouge()
-        squality_rouge_score = rouge_object._compute(predictions=predictions, references=references)
+        squality_rouge_score = rouge_object._compute(predictions=predictions,
+                                                     references=[[item] for item in references])
         # Save
         file_name = model_name + '_squality_rouge.json'
         file_path = os.path.join(path, 'evaluation/' + file_name)
@@ -116,7 +119,7 @@ class Evaluate:
     def gpt_eval(path, predictions, references, model_name):
         # Get prompt
         metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[1]
+        metric_type = metric_list[3]
         prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
         # Get messages
         messages = []
@@ -181,11 +184,11 @@ class Evaluate:
         start_flag = True
         for path, dirs, files in os.walk(root):
             if files and dirs:
-                # if start_flag:
-                #     start_flag = False
-                # else:
-                #     print("sleep 20 seconds")
-                #     time.sleep(20)
+                if start_flag:
+                    start_flag = False
+                else:
+                    print("sleep 20 seconds")
+                    time.sleep(20)
                 print(f'prepare {path}')
                 Evaluate.evaluate(path, model_name, bert, rouge, another_rouge, bleurt, gpteval)
                 print(f'write to {path}')
@@ -367,4 +370,4 @@ class SelectSummary:
         return queries, articles
 
 
-Evaluate.evaluate('QMSum/LLM-embedding/MIN', 'gpt3', another_rouge=True, gpteval=True)
+Evaluate.traverse_path('QMSum', 'llama', gpteval=True)
