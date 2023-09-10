@@ -1,14 +1,23 @@
 import json
 import time
-import pygame
+# import pygame
 from PACKAGE import asyncThread, metric_realization, multi_rouge
 import os
 import bert_score
 from tqdm import tqdm
 
-with open('../../keys.json', 'r') as f:
-    api_keys = json.load(f)
-api_key = api_keys[0]
+
+def load_api_key(index):
+    with open('../../keys.json', 'r') as f:
+        api_keys = json.load(f)
+    return api_keys[index]
+
+
+# 0-out
+# 1-out
+# 2-out
+# 3-out
+api_key = load_api_key(4)
 
 
 class Summarize:
@@ -75,24 +84,54 @@ class Summarize:
                     f.write(temp)
 
 
+class LoadEvaluateData:
+    @staticmethod
+    def load_pred(path, model_name):
+        predictions = []
+        pred_file = model_name + '_summary.json'
+        file_path = os.path.join(path, 'summary/' + pred_file)
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                predictions = json.load(f)
+        return predictions
+
+    @staticmethod
+    def load_ref(path):
+        ref_file = 'test.json'
+        references = []
+        file_path = os.path.join(path, ref_file)
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                references = json.load(f)
+            references = [
+                [data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']] for
+                data_item in references]
+        return references
+
+
 class Evaluate:
 
     @staticmethod
-    def squality_rouge(path, predictions, references):
+    def squality_rouge(path, predictions, references, model_name):
+        # Calculate
         print('Evaluate rouge score (use squality)')
         rouge_object = multi_rouge.Rouge()
+
+        '''DIFFERENT'''
+
         squality_rouge_score = rouge_object._compute(predictions=predictions, references=references, use_stemmer=True)
-        file_path = os.path.join(path, 'squality_rouge.json')
+
+        # Save
+        file_name = model_name + '_squality_rouge.json'
+        file_path = os.path.join(path, 'evaluation/' + file_name)
         with open(file_path, 'w') as f:
             f.write(str(squality_rouge_score))
 
     @staticmethod
-    def bert(path, predictions, references):
+    def bert(path, predictions, references, model_name):
         print('Evaluate bert score')
-
         # 批次大小
-        batch_size = 16
-
+        batch_size = 256
         bert_scores = {'p': [], 'r': [], 'f1': [], 'average_p': 0, 'average_r': 0, 'average_f1': 0}
         num_batches = (len(predictions) + batch_size - 1) // batch_size  # 计算需要的批次数量
 
@@ -117,40 +156,49 @@ class Evaluate:
         bert_scores['average_p'] = average_p
         bert_scores['average_r'] = average_r
         bert_scores['average_f1'] = average_f1
-
-        file_path = os.path.join(path, 'evaluation/bart_bert_score.json')
+        # Save
+        file_name = model_name + '_bert_score.json'
+        file_path = os.path.join(path, 'evaluation/' + file_name)
         with open(file_path, 'w') as f:
             temp = json.dumps(bert_scores)
             f.write(temp)
 
     @staticmethod
-    def another_rouge(path, predictions, references):
+    def another_rouge(path, predictions, references, model_name):
         print('Evaluate rouge score (use another way)')
         rouge_score = metric_realization.calculate_rouge(ref=references, pred=predictions)
-        with open(os.path.join(path, 'evaluation/rouge.json'), 'w') as f:
+        # Save
+        file_name = model_name + '_rouge.json'
+        file_path = os.path.join(path, 'evaluation/' + file_name)
+        with open(file_path, 'w') as f:
             temp = json.dumps(rouge_score)
             f.write(temp)
 
     @staticmethod
-    def bleurt(path, predictions, references):
+    def bleurt(path, predictions, references, model_name):
         print('Evaluate bleurt score')
         rouge_score = metric_realization.calculate_bert_score(ref=references, pred=predictions)
-        with open(os.path.join(path, 'evaluation/bleurt.json'), 'w') as f:
+        # Save
+        file_name = model_name + '_bleurt.json'
+        file_path = os.path.join(path, 'evaluation/' + file_name)
+        with open(file_path, 'w') as f:
             temp = json.dumps(rouge_score)
             f.write(temp)
 
     @staticmethod
-    def gpt_eval(path, predictions, references, bart=False):
+    def gpt_eval(path, predictions, references, model_name, gpteval_summary_index=1):
         # Get prompt
         metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[3]
+        metric_type = metric_list[1]
         prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
+
         # Get messages
         messages = []
         for index, prediction in enumerate(predictions):
             reference = references[index]
             cur_prompt = prompt.replace('{{Document}}', reference).replace('{{Summary}}', prediction)
             messages.append([{"role": "system", "content": cur_prompt}])
+
         # Send request
         response_list = asyncThread.run(messages=messages,
                                         engine_name="gpt-3.5-turbo-16k-0613",
@@ -159,35 +207,38 @@ class Evaluate:
                                         top_p=1,
                                         api_key=api_key,
                                         requests_per_minute=180)
+
         # Del non-numeric
         num_list = ['1', '2', '3', '4', '5']
         response_list = [item for item in response_list if item and item[0] in num_list]
         response_list = [int(item[0]) for item in response_list]
+
         # Calaulate Average
-        # Save
-        save_path = os.path.join(path, 'evaluation/gpt3_' + metric_type + '_gpteval.json')
-        if bart:
-            save_path = os.path.join(path, 'evaluation/bart_' + metric_type + '_gpteval.json')
+        average = [sum(response_list) / len(response_list)]
+
+        # Save path
+        save_path = os.path.join(path, 'evaluation/' + model_name + '_' + metric_type + '_gpteval.json')
         # Load fore gpteval
         if os.path.exists(save_path):
             with open(save_path, "r") as f:
                 gpteval = json.load(f)
         else:
             gpteval = {}
-        gpteval['Summary_1'] = response_list
+        gpteval['Summary_' + str(gpteval_summary_index)] = response_list
+        gpteval['average'] = average
         with open(save_path, 'w') as f:
             temp = json.dumps(gpteval)
             f.write(temp)
 
     @staticmethod
-    def evaluate(path, bert=False, rouge=False, another_rouge=False, bleurt=False, bart=False, gpteval=False):
-        # Load predictions, references
-        if gpteval:
-            predictions, references = LoadPredRef.gpteval(path, bart)
-        elif bart:
-            predictions, references = LoadPredRef.bart(path)
-        else:
-            predictions, references = LoadPredRef.init(path)
+    def evaluate(path, model_name, bert=False, rouge=False, another_rouge=False, bleurt=False, gpteval=False,
+                 gpteval_summary_index=1):
+        # Load predictions
+        predictions = LoadEvaluateData.load_pred(path, model_name)
+        if not predictions:
+            return
+        # Load references
+        references = LoadEvaluateData.load_ref(path)
 
         # Delete empty
         references = [references[index] for index, item in enumerate(predictions) if item != '']
@@ -198,18 +249,20 @@ class Evaluate:
         # predictions = predictions[0:5]
 
         if rouge:
-            Evaluate.squality_rouge(path, predictions, references)
-        if bert:
-            Evaluate.bert(path, predictions, references)
+            Evaluate.squality_rouge(path, predictions, references, model_name)
         if another_rouge:
-            Evaluate.another_rouge(path, predictions, references)
+            Evaluate.another_rouge(path, predictions, references, model_name)
+        if bert:
+            Evaluate.bert(path, predictions, references, model_name)
         if bleurt:
-            Evaluate.bleurt(path, predictions, references)
+            Evaluate.bleurt(path, predictions, references, model_name)
         if gpteval:
-            Evaluate.gpt_eval(path, predictions, references, bart)
+            references = [item[gpteval_summary_index - 1] for item in references]
+            Evaluate.gpt_eval(path, predictions, references, model_name, gpteval_summary_index)
 
     @staticmethod
-    def traverse_path(root, bert=False, rouge=False, another_rouge=False, bleurt=False, bart=False, gpteval=False):
+    def traverse_path(root, model_name, bert=False, rouge=False, another_rouge=False, bleurt=False, bart=False,
+                      gpteval=False, gpteval_summary_index=1):
         start_flag = True
         for path, dirs, files in os.walk(root):
             if files and dirs:
@@ -219,110 +272,13 @@ class Evaluate:
                     print("sleep 45 seconds")
                     time.sleep(45)
                 print(f'prepare {path}')
-                Evaluate.evaluate(path, bert, rouge, another_rouge, bleurt, bart, gpteval)
+                Evaluate.evaluate(path, model_name, bert, rouge, another_rouge, bleurt, gpteval,
+                                  gpteval_summary_index)
                 print(f'write to {path}')
-            else:
-                continue
-
-
-class LoadPredRef:
-    @staticmethod
-    # Load ref,pred
-    def gpteval(path, bart=False):
-        predictions, references = [], []
-        # Load train data (same with bart)
-        ref_file_path = os.path.join(path, 'test.json')
-        if os.path.exists(ref_file_path):
-            # Load reference
-            with open(ref_file_path, 'r') as f:
-                references = json.load(f)
-            references = [data_item['Summary_1'] for data_item in references]
-            # Load prediction
-            pred_type = 'gpt3_summary_test.json'
-            if bart:
-                pred_type = 'bart_summary.json'
-            pred_file_path = os.path.join(path, 'summary/' + pred_type)
-            with open(pred_file_path, 'r') as f:
-                predictions = json.load(f)
-        else:
-            ref_files = ['max.json', 'mean.json', 'min.json']
-            ref_file_paths = [os.path.join(path, ref_file) for ref_file in ref_files]
-            for index, ref_file_path in enumerate(ref_file_paths):
-                if os.path.exists(ref_file_path):
-                    # Load reference
-                    with open(ref_file_path, 'r') as f:
-                        references = json.load(f)
-                    references = [data_item['Summary_1'] for data_item in references]
-                    references = references[250:510]
-                    # Load prediction
-                    pred_type = 'gpt3_summary_' + ref_files[index]
-                    if bart:
-                        pred_type = 'bart_summary.json'
-                    pred_file_path = os.path.join(path, 'summary/' + pred_type)
-                    with open(pred_file_path, 'r') as f:
-                        predictions = json.load(f)
-                    if not bart:
-                        predictions = predictions[250:510]
-        return predictions, references
-
-    @staticmethod
-    def bart(path):
-        # Load pred
-        pred_type = 'bart_summary.json'
-        pred_file_path = os.path.join(path, 'summary/' + pred_type)
-        with open(pred_file_path, 'r') as f:
-            predictions = json.load(f)
-        # Load ref
-        ref_file_path = os.path.join(path, 'test.json')
-        if os.path.exists(ref_file_path):
-            # Load reference
-            with open(ref_file_path, 'r') as f:
-                references = json.load(f)
-        else:
-            ref_files = ['max.json', 'mean.json', 'min.json']
-            ref_file_paths = [os.path.join(path, ref_file) for ref_file in ref_files]
-            for index, ref_file_path in enumerate(ref_file_paths):
-                if os.path.exists(ref_file_path):
-                    # Load reference
-                    with open(ref_file_path, 'r') as f:
-                        references = json.load(f)
-                    references = references[250:510]
-        references = [[data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']]
-                      for data_item in references]
-        return predictions, references
-
-    @staticmethod
-    def init(path):
-        predictions = []
-        references = []
-
-        ref_files = [
-            'max.json', 'mean.json', 'min.json', 'Academic.json', 'Committee.json', 'Product.json', 'dev.json',
-            'test.json',
-            'train.json']
-
-        for ref_file in ref_files:
-            ref_file_path = os.path.join(path, ref_file)
-            pred_file_path = os.path.join(path, 'gpt3_summary_' + ref_file)
-
-            if os.path.exists(ref_file_path):
-                with open(ref_file_path, 'r') as f:
-                    item_ref = json.load(f)
-                item_ref = [
-                    [data_item['Summary_1'], data_item['Summary_2'], data_item['Summary_3'], data_item['Summary_4']]
-                    for data_item in item_ref]
-                references.extend(item_ref)
-
-            if os.path.exists(pred_file_path):
-                with open(pred_file_path, 'r') as f:
-                    item_pred = json.load(f)
-                predictions.extend(item_pred)
-
-        return predictions, references
 
 
 # 初始化所有 Pygame 模块
-pygame.init()
+# pygame.init()
 # waiting to process: dense LLM-embedding oracle sparse —— bart rel
 '''
 dense
@@ -330,12 +286,12 @@ LLM-embedding
 oracle
 sparse
 '''
-Evaluate.traverse_path('SQuALITY/oracle', gpteval=True, bart=True)
+Evaluate.traverse_path('SQuALITY/sparse/min', model_name='pri', rouge=False, gpteval=True, gpteval_summary_index=1)
 
 # Play sound when done
-pygame.mixer.music.load("雷达铃声.mp3")
-pygame.mixer.music.set_volume(0.1)
-for i in range(3):
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy():
-        continue
+# pygame.mixer.music.load("雷达铃声.mp3")
+# pygame.mixer.music.set_volume(0.1)
+# for _ in range(3):
+#     pygame.mixer.music.play()
+#     while pygame.mixer.music.get_busy():
+#         continue

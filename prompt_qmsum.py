@@ -15,10 +15,37 @@ def load_api_key(index):
     return api_keys[index]
 
 
-# 1-4.08
-# 2-3.56
-api_key = load_api_key(2)
+api_key = load_api_key(4)
 llm = ChatOpenAI(model_name="gpt-3.5-turbo-16k-0613", openai_api_key=api_key, temperature=0.7, max_tokens=600)
+
+
+class LoadEvaluateData:
+    @staticmethod
+    def load_pred(path, model_name):
+        predictions = []
+        pred_file = model_name + '_intermediate_summary.json'
+        # pred_file = model_name + '_summary.json'
+        file_path = os.path.join(path, 'summary/' + pred_file)
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                predictions = json.load(f)
+
+        predictions = [item[0] for item in predictions]
+
+        return predictions
+
+    @staticmethod
+    def load_ref(path):
+        ref_file = 'test.json'
+        references = []
+        file_path = os.path.join(path, ref_file)
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                references = json.load(f)
+            references = [
+                data_item['Summary']
+                for data_item in references]
+        return references
 
 
 class Evaluate:
@@ -28,9 +55,10 @@ class Evaluate:
         print('Evaluate rouge score (use squality)')
         rouge_object = multi_rouge.Rouge()
         squality_rouge_score = rouge_object._compute(predictions=predictions,
-                                                     references=[[item] for item in references])
+                                                     references=[[item] for item in references], use_stemmer=True)
         # Save
-        file_name = model_name + '_squality_rouge.json'
+        # file_name = model_name + '_squality_rouge.json'
+        file_name = model_name + '_truncate_squality_rouge.json'
         file_path = os.path.join(path, 'evaluation/' + file_name)
         with open(file_path, 'w') as f:
             f.write(str(squality_rouge_score))
@@ -86,6 +114,7 @@ class Evaluate:
     def bleurt(path, predictions, references, model_name):
         print('Evaluate bleurt score')
         rouge_score = metric_realization.calculate_bert_score(ref=references, pred=predictions)
+        # Save
         file_name = model_name + '_bleurt.json'
         file_path = os.path.join(path, 'evaluation/' + file_name)
         with open(file_path, 'w') as f:
@@ -93,57 +122,44 @@ class Evaluate:
             f.write(temp)
 
     @staticmethod
-    def load_pred(path, model_name):
-        predictions = []
-        pred_file = model_name + '_summary.json'
-        file_path = os.path.join(path, 'summary/' + pred_file)
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                predictions = json.load(f)
-        return predictions
-
-    @staticmethod
-    def load_ref(path):
-        ref_file = 'test.json'
-        references = []
-        file_path = os.path.join(path, ref_file)
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
-                references = json.load(f)
-            references = [
-                data_item['Summary']
-                for data_item in references]
-        return references
-
-    @staticmethod
     def gpt_eval(path, predictions, references, model_name):
         # Get prompt
         metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[3]
+        metric_type = metric_list[1]
         prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
+
         # Get messages
         messages = []
         for index, prediction in enumerate(predictions):
             reference = references[index]
             cur_prompt = prompt.replace('{{Document}}', reference).replace('{{Summary}}', prediction)
             messages.append([{"role": "system", "content": cur_prompt}])
-        # Send request
-        response_list = asyncThread.run(messages=messages,
-                                        engine_name="gpt-3.5-turbo-16k-0613",
-                                        temperature=1,
-                                        max_tokens=5,
-                                        top_p=1,
-                                        api_key=api_key,
-                                        requests_per_minute=180)
-        # Del non-numeric
-        num_list = ['1', '2', '3', '4', '5']
-        response_list = [item for item in response_list if item and item[0] in num_list]
-        response_list = [int(item[0]) for item in response_list]
+
+        response_13list = []
+        for _ in range(23):
+            print(_)
+            # Send request
+            response_list = asyncThread.run(messages=messages,
+                                            engine_name="gpt-3.5-turbo-16k-0613",
+                                            temperature=1,
+                                            max_tokens=5,
+                                            top_p=1,
+                                            api_key=api_key,
+                                            requests_per_minute=180)
+
+            # Del non-numeric
+            num_list = ['1', '2', '3', '4', '5']
+            response_list = [item for item in response_list if item and item[0] in num_list]
+            response_list = [int(item[0]) for item in response_list]
+
+            response_13list.extend(response_list)
+
         # Calaulate Average
-        average = [sum(response_list) / len(response_list)]
+        average = [sum(response_13list) / len(response_13list)]
+
         # Save
-        gpteval = {'Summary': response_list, 'average': average}
-        save_path = os.path.join(path, 'evaluation/' + model_name + '_' + metric_type + '_gpteval.json')
+        save_path = os.path.join(path, 'evaluation/' + model_name + '_truncate_' + metric_type + '_gpteval.json')
+        gpteval = {'Summary': response_13list, 'average': average}
         with open(save_path, 'w') as f:
             temp = json.dumps(gpteval)
             f.write(temp)
@@ -151,16 +167,16 @@ class Evaluate:
     @staticmethod
     def evaluate(path, model_name, bert=False, rouge=False, another_rouge=False, bleurt=False, gpteval=False):
         # Load predictions
-        predictions = Evaluate.load_pred(path, model_name)
+        predictions = LoadEvaluateData.load_pred(path, model_name)
         if not predictions:
             return
         # Load references
-        references = Evaluate.load_ref(path)
+        references = LoadEvaluateData.load_ref(path)
         # Load random index
         with open('QMSum/randomIndex/index.json', 'r') as f:
             random_index_list = json.load(f)
         # Change references same to prediciton
-        if model_name == 'gpt3':
+        if model_name.startswith('gpt3'):
             references = [references[index] for index in random_index_list]
         # predictions = [predictions[index] for index in random_index_list]
 
@@ -188,7 +204,7 @@ class Evaluate:
                     start_flag = False
                 else:
                     print("sleep 20 seconds")
-                    time.sleep(20)
+                    # time.sleep(20)
                 print(f'prepare {path}')
                 Evaluate.evaluate(path, model_name, bert, rouge, another_rouge, bleurt, gpteval)
                 print(f'write to {path}')
@@ -276,40 +292,33 @@ class Summarize:
     @staticmethod
     def traverse_sub_path(path):
         queries, articles = SelectSummary.load_query_article(path)
-        # 记录分割的数量，如果小于10则继续提交
-        # split_text_count = 0
 
         save_intermediate_outputs = []
         save_final_output = []
 
         for index, article in enumerate(articles):
-            # 根据传输的token数控制休眠时间
-            # if split_text_count != 0 and split_text_count + len(article) > 10:
-            #     sleep_time = int(split_text_count / 10 * 60)
-            #     print(f"sleep:{sleep_time} seconds")
-            #     time.sleep(sleep_time)
-            #     split_text_count = len(article)
-            # else:
-            #     split_text_count += len(article)
             # 运行并处理
             query = queries[index]
             intermediate_outputs = Summarize.intermediate_summary(query, article)
             final_output = Summarize.final_summary(query, intermediate_outputs)
             save_intermediate_outputs.append(intermediate_outputs)
             save_final_output.append(final_output)
-            with open(os.path.join(path, 'summary/gpt3_intermediate_summary.json'), 'w') as f:
+            with open(os.path.join(path, 'summary/gpt311_intermediate_summary.json'), 'w') as f:
                 temp = json.dumps(save_intermediate_outputs, indent=4)
                 f.write(temp)
 
-            with open(os.path.join(path, 'summary/gpt3_summary.json'), 'w') as f:
+            with open(os.path.join(path, 'summary/gpt311_summary.json'), 'w') as f:
                 temp = json.dumps(save_final_output, indent=4)
                 f.write(temp)
 
     @staticmethod
     def intermediate_summary(query, docs):
         map_prompts = [
-            f"Write an answer based on the following question and the given meeting.Try to answer thoroughly and do not leave out useful information.\n QUESTION:{query}\n MEETING:{doc}\n SUMMARY: \n"
+            f"Write an answer based on the following question and the given meeting.Try to answer thoroughly and do not leave out useful information.\n MEETING:{doc}\n QUESTION:{query}\n SUMMARY: \n"
             for doc in docs]
+        # map_prompts = [
+        #     f"Abstract the paragraph from the meeting which can be used to answer the question. Do not leave out useful information.\n MEETING:{doc}\n QUESTION:{query}\n ABSTRACTED PARAGRAPH: \n"
+        #     for doc in docs]
         system = "You are a helpful assistant that gives long answer to question based on a long meeting."
         messages = [[{"role": "system", "content": system},
                      {"role": "user", "content": map_prompt}] for map_prompt in map_prompts]
@@ -370,4 +379,7 @@ class SelectSummary:
         return queries, articles
 
 
-Evaluate.traverse_path('QMSum', 'llama', gpteval=True)
+# Summarize.traverse_sub_path('QMSum/LLM-embedding/MIN')
+# Summarize.traverse_sub_path('QMSum/sparse/MIN')
+# Summarize.traverse_sub_path('QMSum/dense/MIN')
+Evaluate.traverse_path('QMSum/', 'gpt311', rouge=True, gpteval=True)
