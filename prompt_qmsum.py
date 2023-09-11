@@ -15,22 +15,22 @@ def load_api_key(index):
     return api_keys[index]
 
 
-api_key = load_api_key(4)
-llm = ChatOpenAI(model_name="gpt-3.5-turbo-16k-0613", openai_api_key=api_key, temperature=0.7, max_tokens=600)
+api_key = ''
+llm = ChatOpenAI(model_name="gpt-4-0613", openai_api_key=api_key, temperature=0.7, max_tokens=600)
 
 
 class LoadEvaluateData:
     @staticmethod
     def load_pred(path, model_name):
         predictions = []
-        pred_file = model_name + '_intermediate_summary.json'
-        # pred_file = model_name + '_summary.json'
+        # pred_file = model_name + '_intermediate_summary.json'
+        pred_file = model_name + '_summary.json'
         file_path = os.path.join(path, 'summary/' + pred_file)
         if os.path.exists(file_path):
             with open(file_path, 'r') as f:
                 predictions = json.load(f)
 
-        predictions = [item[0] for item in predictions]
+        # predictions = [item[0] for item in predictions]
 
         return predictions
 
@@ -43,7 +43,7 @@ class LoadEvaluateData:
             with open(file_path, 'r') as f:
                 references = json.load(f)
             references = [
-                data_item['Summary']
+                data_item['Summary_1']
                 for data_item in references]
         return references
 
@@ -57,8 +57,8 @@ class Evaluate:
         squality_rouge_score = rouge_object._compute(predictions=predictions,
                                                      references=[[item] for item in references], use_stemmer=True)
         # Save
-        # file_name = model_name + '_squality_rouge.json'
-        file_name = model_name + '_truncate_squality_rouge.json'
+        file_name = model_name + '_squality_rouge.json'
+        # file_name = model_name + '_truncate_squality_rouge.json'
         file_path = os.path.join(path, 'evaluation/' + file_name)
         with open(file_path, 'w') as f:
             f.write(str(squality_rouge_score))
@@ -124,45 +124,48 @@ class Evaluate:
     @staticmethod
     def gpt_eval(path, predictions, references, model_name):
         # Get prompt
-        metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[1]
-        prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
+        # metric_list = ['coh', 'con', 'flu', 'rel']
+        metric_list = ['con', 'rel']
+        for metric_type in metric_list:
+            prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
 
-        # Get messages
-        messages = []
-        for index, prediction in enumerate(predictions):
-            reference = references[index]
-            cur_prompt = prompt.replace('{{Document}}', reference).replace('{{Summary}}', prediction)
-            messages.append([{"role": "system", "content": cur_prompt}])
+            # Get messages
+            messages = []
+            for index, prediction in enumerate(predictions):
+                reference = references[index]
+                cur_prompt = prompt.replace('{{Document}}', reference).replace('{{Summary}}', prediction)
+                messages.append([{"role": "system", "content": cur_prompt}])
 
-        response_13list = []
-        for _ in range(23):
-            print(_)
-            # Send request
-            response_list = asyncThread.run(messages=messages,
-                                            engine_name="gpt-3.5-turbo-16k-0613",
-                                            temperature=1,
-                                            max_tokens=5,
-                                            top_p=1,
-                                            api_key=api_key,
-                                            requests_per_minute=180)
+            response_13list = []
+            for _ in range(23):
+                print(_)
+                # Send request
+                response_list = asyncThread.run(messages=messages,
+                                                engine_name="gpt-3.5-turbo-16k-0613",
+                                                # engine_name="gpt-4-0613",
+                                                temperature=1,
+                                                max_tokens=5,
+                                                top_p=1,
+                                                api_key=api_key,
+                                                requests_per_minute=180)
 
-            # Del non-numeric
-            num_list = ['1', '2', '3', '4', '5']
-            response_list = [item for item in response_list if item and item[0] in num_list]
-            response_list = [int(item[0]) for item in response_list]
+                # Del non-numeric
+                num_list = ['1', '2', '3', '4', '5']
+                response_list = [item for item in response_list if item and item[0] in num_list]
+                response_list = [int(item[0]) for item in response_list]
 
-            response_13list.extend(response_list)
+                response_13list.extend(response_list)
 
-        # Calaulate Average
-        average = [sum(response_13list) / len(response_13list)]
+            # Calaulate Average
+            average = [sum(response_13list) / len(response_13list)]
 
-        # Save
-        save_path = os.path.join(path, 'evaluation/' + model_name + '_truncate_' + metric_type + '_gpteval.json')
-        gpteval = {'Summary': response_13list, 'average': average}
-        with open(save_path, 'w') as f:
-            temp = json.dumps(gpteval)
-            f.write(temp)
+            # Save
+            # save_path = os.path.join(path, 'evaluation/' + model_name + '_truncate_' + metric_type + '_gpteval.json')
+            save_path = os.path.join(path, 'evaluation/' + model_name + '_' + metric_type + '_gpteval.json')
+            gpteval = {'Summary': response_13list, 'average': average}
+            with open(save_path, 'w') as f:
+                temp = json.dumps(gpteval)
+                f.write(temp)
 
     @staticmethod
     def evaluate(path, model_name, bert=False, rouge=False, another_rouge=False, bleurt=False, gpteval=False):
@@ -176,7 +179,7 @@ class Evaluate:
         with open('QMSum/randomIndex/index.json', 'r') as f:
             random_index_list = json.load(f)
         # Change references same to prediciton
-        if model_name.startswith('gpt3'):
+        if model_name.startswith('gpt3') or model_name.startswith('gpt4'):
             references = [references[index] for index in random_index_list]
         # predictions = [predictions[index] for index in random_index_list]
 
@@ -249,7 +252,7 @@ class Summarize:
 
         tokens = [llm.get_num_tokens(article) for article in articles]
 
-        split_counts = [1 + token // 14000 for token in tokens]
+        split_counts = [1 + token // 6800 for token in tokens]
 
         split_meetings = []
         for index, article in enumerate(articles):
@@ -258,7 +261,7 @@ class Summarize:
 
     @staticmethod
     def make_split_meeting_files():
-        path = 'QMSum'
+        path = 'SQuALITY'
         wait_process_files = ['test.json']
         for root, dirs, files in os.walk(path):
             # 遍历当前目录下的文件
@@ -278,7 +281,7 @@ class Summarize:
                 tokens, split_meetings = Summarize.split_meeting(articles)
 
                 # Write meetings
-                with open(os.path.join(root, 'split/split_' + file_name), 'w') as f:
+                with open(os.path.join(root, 'split/split8000_' + file_name), 'w') as f:
                     print(root)
                     temp = json.dumps(split_meetings, indent=4)
                     f.write(temp)
@@ -324,6 +327,7 @@ class Summarize:
                      {"role": "user", "content": map_prompt}] for map_prompt in map_prompts]
         intermediate_outputs = asyncThread.run(messages=messages,
                                                engine_name="gpt-3.5-turbo-16k-0613",
+                                               # engine_name="gpt-4-0613",
                                                temperature=0.7,
                                                max_tokens=600,
                                                top_p=0.9,
@@ -359,7 +363,7 @@ class Summarize:
 class SelectSummary:
     @staticmethod
     def random_select(count):
-        indexes = random.sample(range(131), count)
+        indexes = random.sample(range(260), count)
         with open('QMSum/randomIndex/index.json', 'w') as f:
             temp = json.dumps(indexes)
             f.write(temp)
@@ -379,7 +383,7 @@ class SelectSummary:
         return queries, articles
 
 
-# Summarize.traverse_sub_path('QMSum/LLM-embedding/MIN')
 # Summarize.traverse_sub_path('QMSum/sparse/MIN')
-# Summarize.traverse_sub_path('QMSum/dense/MIN')
-Evaluate.traverse_path('QMSum/', 'gpt311', rouge=True, gpteval=True)
+# Summarize.traverse_sub_path('QMSum/dense/MAX')
+# Summarize.make_split_meeting_files()
+Evaluate.traverse_path('QMSum', 'gpt4', bert=True)

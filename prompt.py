@@ -17,7 +17,7 @@ def load_api_key(index):
 # 1-out
 # 2-out
 # 3-out
-api_key = load_api_key(4)
+api_key = ''
 
 
 class Summarize:
@@ -131,7 +131,7 @@ class Evaluate:
     def bert(path, predictions, references, model_name):
         print('Evaluate bert score')
         # 批次大小
-        batch_size = 256
+        batch_size = 261
         bert_scores = {'p': [], 'r': [], 'f1': [], 'average_p': 0, 'average_r': 0, 'average_f1': 0}
         num_batches = (len(predictions) + batch_size - 1) // batch_size  # 计算需要的批次数量
 
@@ -189,7 +189,7 @@ class Evaluate:
     def gpt_eval(path, predictions, references, model_name, gpteval_summary_index=1):
         # Get prompt
         metric_list = ['coh', 'con', 'flu', 'rel']
-        metric_type = metric_list[1]
+        metric_type = metric_list[3]
         prompt = open('GPTeval/prompts/' + metric_type + '_detailed.txt').read()
 
         # Get messages
@@ -261,7 +261,7 @@ class Evaluate:
             Evaluate.gpt_eval(path, predictions, references, model_name, gpteval_summary_index)
 
     @staticmethod
-    def traverse_path(root, model_name, bert=False, rouge=False, another_rouge=False, bleurt=False, bart=False,
+    def traverse_path(root, model_name, bert=False, rouge=False, another_rouge=False, bleurt=False,
                       gpteval=False, gpteval_summary_index=1):
         start_flag = True
         for path, dirs, files in os.walk(root):
@@ -270,7 +270,7 @@ class Evaluate:
                     start_flag = False
                 else:
                     print("sleep 45 seconds")
-                    time.sleep(45)
+                    # time.sleep(45)
                 print(f'prepare {path}')
                 Evaluate.evaluate(path, model_name, bert, rouge, another_rouge, bleurt, gpteval,
                                   gpteval_summary_index)
@@ -286,7 +286,7 @@ LLM-embedding
 oracle
 sparse
 '''
-Evaluate.traverse_path('SQuALITY/sparse/min', model_name='pri', rouge=False, gpteval=True, gpteval_summary_index=1)
+Evaluate.traverse_path('SQuALITY', model_name='pri', bert=True)
 
 # Play sound when done
 # pygame.mixer.music.load("雷达铃声.mp3")

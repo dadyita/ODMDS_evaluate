@@ -56,8 +56,8 @@ async def _throttled_openai_chat_completion_acreate(
                 logging.warning(f"OpenAI ServiceUnavailableError:{e}Try {_ + 1}")
                 await asyncio.sleep(11)
             except Exception as e:
-                logging.warning(f"Exception OR Error:{e}Try {_ + 1}")
-                return {"choices": [{"message": {"content": ""}}]}
+                logging.warning(f"Exception OR Error:{e}Try {_ + 1},sleep 11 sec")
+                await asyncio.sleep(11)
         return {"choices": [{"message": {"content": ""}}]}
 
 
