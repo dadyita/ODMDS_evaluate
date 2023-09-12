@@ -239,7 +239,12 @@ class Evaluate:
             return
         # Load references
         references = LoadEvaluateData.load_ref(path)
-
+        # Load random index
+        with open('QMSum/randomIndex/index.json', 'r') as f:
+            random_index_list = json.load(f)
+        # Change references same to prediciton
+        if model_name.startswith('gpt4'):
+            references = [references[index] for index in random_index_list]
         # Delete empty
         references = [references[index] for index, item in enumerate(predictions) if item != '']
         predictions = [predictions[index] for index, item in enumerate(predictions) if item != '']

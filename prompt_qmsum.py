@@ -43,7 +43,7 @@ class LoadEvaluateData:
             with open(file_path, 'r') as f:
                 references = json.load(f)
             references = [
-                data_item['Summary_1']
+                data_item['Summary']
                 for data_item in references]
         return references
 
@@ -213,7 +213,7 @@ class Evaluate:
                 print(f'write to {path}')
 
 
-class Summarize:
+class Split:
     @staticmethod
     def split_string(string, num_segments):
         # 计算每段的大致大小
@@ -286,6 +286,9 @@ class Summarize:
                     temp = json.dumps(split_meetings, indent=4)
                     f.write(temp)
 
+
+class Summarize:
+
     @staticmethod
     def traverse_path(folder_path):
         for root, dirs, files in os.walk(folder_path):
@@ -334,6 +337,28 @@ class Summarize:
                                                api_key=api_key,
                                                requests_per_minute=20)
 
+        return intermediate_outputs
+
+    @staticmethod
+    def refine_summary(query, docs, l2h=False):
+        if l2h:
+            docs.reverse()
+        intermediate_outputs = ['']
+        # chain refine
+        for index, doc in enumerate(docs):
+            map_prompt = f"Write an answer based on the following question, the given meeting and the based information. Try to answer thoroughly and do not leave out useful information.\n MEETING:{doc}\n QUESTION:{query}\nBASED INFORMATION{intermediate_outputs[index]}\n SUMMARY: \n"
+            system = "You are a helpful assistant that gives long answer to question based on a long meeting."
+            messages = [[{"role": "system", "content": system},
+                         {"role": "user", "content": map_prompt}]]
+            intermediate_output = asyncThread.run(messages=messages,
+                                                  engine_name="gpt-3.5-turbo-16k-0613",
+                                                  # engine_name="gpt-4-0613",
+                                                  temperature=0.7,
+                                                  max_tokens=600,
+                                                  top_p=0.9,
+                                                  api_key=api_key,
+                                                  requests_per_minute=20)
+            intermediate_outputs.append(intermediate_output[0])
         return intermediate_outputs
 
     @staticmethod
